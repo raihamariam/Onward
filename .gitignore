@@ -1,0 +1,38 @@
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.turbo/
+npm-debug.log*
+apps/web/.env*.local
+
+# Python / FastAPI
+__pycache__/
+*.pyc
+.venv/
+venv/
+services/decision-engine/.venv/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# uv
+services/decision-engine/uv.lock.tmp
