@@ -157,6 +157,15 @@ def test_insufficient_evidence_forces_review():
     assert "insufficient evidence" in result.review_reason
 
 
+def test_missing_default_provider_api_key_degrades_safely_instead_of_crashing(monkeypatch):
+    """Groq is the active default provider (Phase 3 provider substitution)."""
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+    monkeypatch.delenv("MODEL_PROVIDER", raising=False)
+    result = interpret_incident(make_request("won't turn on"))  # no provider injected
+    assert result.requires_human_review is True
+    assert "GROQ_API_KEY" in result.review_reason
+
+
 def test_missing_provider_api_key_degrades_safely_instead_of_crashing(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setenv("MODEL_PROVIDER", "gemini")
