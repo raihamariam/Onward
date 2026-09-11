@@ -1,9 +1,9 @@
 {
   "id": "2LTZ0WR1nIjRqlaU",
   "name": "WF-01 Incident Intake",
-  "description": "Onward Phase 2: receives an incident report against a registered asset, validates it, resolves and checks the asset, deduplicates by idempotency key, and persists the incident to Supabase. Phase 3 addition: fire-and-forget triggers WF-02 after a successful insert. No AI validation or recovery logic lives here.",
+  "description": "Onward Phase 2: receives an incident report against a registered asset, validates it, resolves and checks the asset, deduplicates by idempotency key, and persists the incident to Supabase. Phase 3 additions: fire-and-forget triggers WF-02 after a successful insert; accepts an optional media_url so evidence photos can flow through to interpretation.",
   "active": true,
-  "note": "Published and live-gate-tested (Phase 3, second pass) — the Trigger Intelligence node below is live; verified via search_workflow_executions/get_workflow_execution that submitting a real incident fires WF-02 automatically, and that a duplicate (same idempotency_key) resubmission does not.",
+  "note": "Published and live-gate-tested (Phase 3, third pass — image intake). Trigger Intelligence fires on every successful insert and not on duplicates (verified via execution history). media_url is optional, stored as-is (null if absent) — the client is expected to upload to the public 'incident-media' Supabase Storage bucket first and submit the resulting URL; this workflow never receives raw image bytes.",
   "settings": { "executionOrder": "v1", "availableInMCP": true, "binaryMode": "separate" },
   "nodes": [
     { "id": "16601f4e-8b25-4c82-aae9-f96a49c0d138", "name": "Incident Webhook", "type": "n8n-nodes-base.webhook", "typeVersion": 2.1, "position": [208, 400], "parameters": { "httpMethod": "POST", "path": "incident-intake", "responseMode": "responseNode", "options": {} }, "webhookId": "6d91b4d1-076e-4864-abee-22ef53e75751" },
@@ -11,7 +11,8 @@
       { "id": "assign-asset-code", "name": "asset_code", "value": "={{ $json.body?.asset_code ?? $json.asset_code ?? \"\" }}", "type": "string" },
       { "id": "assign-description", "name": "description", "value": "={{ $json.body?.description ?? $json.description ?? \"\" }}", "type": "string" },
       { "id": "assign-idempotency-key", "name": "idempotency_key", "value": "={{ $json.body?.idempotency_key ?? $json.idempotency_key ?? \"\" }}", "type": "string" },
-      { "id": "assign-source", "name": "source", "value": "={{ $json.body?.source ?? $json.source ?? \"web\" }}", "type": "string" }
+      { "id": "assign-source", "name": "source", "value": "={{ $json.body?.source ?? $json.source ?? \"web\" }}", "type": "string" },
+      { "id": "assign-media-url", "name": "media_url", "value": "={{ $json.body?.media_url ?? $json.media_url ?? \"\" }}", "type": "string" }
     ] }, "options": {} } },
     { "id": "7719923d-6764-48eb-b228-a8730ac42ee4", "name": "Validate Required Fields", "type": "n8n-nodes-base.if", "typeVersion": 2.2, "position": [640, 400], "parameters": { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 1 }, "combinator": "and", "conditions": [
       { "leftValue": "={{ $json.asset_code }}", "operator": { "type": "string", "operation": "notEmpty" }, "rightValue": "" },
@@ -29,7 +30,8 @@
       { "fieldId": "description", "fieldValue": "={{ $(\"Normalize Input\").item.json.description }}" },
       { "fieldId": "idempotency_key", "fieldValue": "={{ $(\"Normalize Input\").item.json.idempotency_key }}" },
       { "fieldId": "source", "fieldValue": "={{ $(\"Normalize Input\").item.json.source }}" },
-      { "fieldId": "status", "fieldValue": "received" }
+      { "fieldId": "status", "fieldValue": "received" },
+      { "fieldId": "media_url", "fieldValue": "={{ $(\"Normalize Input\").item.json.media_url || null }}" }
     ] } }, "credentials": { "supabaseApi": { "id": "dYRlahdtvOfzgkpw", "name": "Supabase (Onward)" } } },
     { "id": "63bc31b7-1d09-451d-b235-09e2eaa7b092", "name": "Respond 201 Created", "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1.5, "position": [2192, -160], "parameters": { "respondWith": "json", "responseBody": "={{ { incident_id: $json.id, asset_id: $json.asset_id, status: $json.status, idempotency_key: $json.idempotency_key, reported_at: $json.reported_at, duplicate: false } }}", "options": { "responseCode": 201 } } },
     { "id": "8e67dd42-f8ed-413b-902a-890957fc6b12", "name": "Respond 500 Persistence Failed", "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1.5, "position": [2192, 80], "parameters": { "respondWith": "json", "responseBody": "={{ { error: 'persistence_failed', message: 'The incident could not be saved. Please retry.' } }}", "options": { "responseCode": 500 } } },
