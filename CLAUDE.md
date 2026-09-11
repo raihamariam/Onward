@@ -198,7 +198,7 @@ Six workflows, each a clear contract with an exit condition. Keep them modular �
 
 | Workflow | Input | Responsibility | Exit condition |
 |---|---|---|---|
-| **WF-01 Incident intake** | Webhook (asset id, photo/audio URLs, text, idempotency key) | Validate payload, resolve registered asset, create `incidents` row, trigger WF-02 | A valid incident row exists, referencing a real asset, and duplicate submissions with the same idempotency key produce no second row |
+| **WF-01 Incident intake** | Webhook (asset code, description, idempotency key, source) | Validate payload, resolve registered asset by `assets.code`, reject unknown/inactive assets, dedupe on `idempotency_key`, create `incidents` row | A valid incident row exists, referencing a real asset, and duplicate submissions with the same idempotency key produce no second row |
 | **WF-02 Incident intelligence** | Incident + asset context | Fetch pgvector top-k context, call decision-engine `/incident/interpret`, branch on `requires_human_review` / `safety_risk` | A validated `IncidentReport` is stored, or the incident is routed to an escalation state — never left ambiguous |
 | **WF-03 Operational impact** | Validated incident | Fetch dependency edges + event data from Postgres, call `/impact/calculate` | An `ImpactResult` (affected event, people affected, minutes remaining, criticality) exists and is stored |
 | **WF-04 Recovery planning** | Incident + impact | Fetch technicians/inventory/rooms/resources from Postgres, call `/recovery/plan`, store all candidates (not just the winner), enter the approval gate | A ranked, explained set of feasible plans exists, or an explicit `no_recovery_available` state is set |
@@ -206,13 +206,19 @@ Six workflows, each a clear contract with an exit condition. Keep them modular �
 | **WF-05 Recovery execution** | Approved plan | Parallel, idempotent, retried writes to Calendar/Slack/Gmail/work_orders/inventory/room reservation, each recorded as an `actions` row keyed by `{incident_id}:{action_type}:{target_id}` | Every planned action has a terminal status (`succeeded`/`failed`), overall execution is `complete` or `partial`, never silently missing |
 | **WF-06 Resolution & audit** | Execution results | Update incident status, update asset/maintenance history, write `audit_log`, close out | The incident has one final, traceable state |
 
+**Reads vs. writes (decided in Phase 2):** the vault and §6 leave the read path implicit. Writes — anything that creates or changes a row — go exclusively through n8n, using the Supabase **secret key** in n8n's own credential store (bypasses RLS, matching n8n's role as the only writer). Reads that just display state — an incident's status, its detail page — go **directly from `apps/web` to Supabase's Data API**, server-side, using the **publishable key**, protected by a public-`SELECT`-only RLS policy (`database/migrations/0001_init.sql`). This isn't a violation of "n8n orchestrates" — reads aren't orchestration, and round-tripping every status check through an n8n webhook would be slower and adds no safety. Never give the publishable key `INSERT`/`UPDATE`/`DELETE` access via RLS — if a future read path needs to trigger a write, that write still goes through n8n.
+
+**Stable asset identifiers:** `assets.code` (e.g. `AV-204`) is the public, human-facing identifier intake resolves against — never the internal `uuid` primary key. This is what a QR code will encode later (`/report?asset=<code>`); the intake contract was built against `code` from the start specifically so adding real QR codes never requires touching the resolution logic, only wiring a QR image to a URL Next.js already serves at `apps/web/app/report/page.tsx`.
+
+**WF-01 is implemented** (Phase 2): workflow id `2LTZ0WR1nIjRqlaU` in the personal n8n project, exported at `n8n/exports/wf01-incident-intake.json`. It validates required fields, resolves the asset by `code`, rejects unknown (404) and inactive (422) assets, checks `idempotency_key` for an existing row before inserting (200 + `duplicate: true` on replay, never a second row), and returns 201 with the persisted incident on success, or 500 if the Supabase write itself fails. It does not yet trigger WF-02 — WF-02 doesn't exist. Its Supabase credential must be created by hand in the n8n UI (no MCP tool can create credentials) and attached to its three Supabase nodes before it will run — see the Phase 2 report for exact steps.
+
 **Building n8n workflows in this environment:** this Claude Code session has direct MCP access to the connected n8n workspace (`mcp__claude_ai_n8n__*` tools — `create_workflow_from_code`, `update_workflow`, `validate_workflow`, `test_workflow`, `search_workflows`, etc.). Prefer these tools over hand-editing JSON blindly — `validate_workflow` and `test_workflow` exist specifically to catch mistakes before they're live. However: **never call `publish_workflow`, `execute_workflow` (against real Slack/Calendar/Gmail credentials), or `archive_workflow`/deletion tools without the user's explicit go-ahead in that moment**, even though the tools are available — the same rule that governs any other consequential, hard-to-reverse action in this project. Export a JSON snapshot of finished workflows into `n8n/exports/` for version control after they're validated, so the repo has a durable copy independent of the live n8n instance.
 
 ---
 
 ## 10. Data model
 
-Supabase Postgres. Core tables:
+Supabase Postgres. Core tables (target design — see below for what's actually implemented):
 
 | Table | Purpose |
 |---|---|
@@ -232,6 +238,8 @@ Supabase Postgres. Core tables:
 | `knowledge_chunks` | Manual/procedure/history text chunks + embedding vector, for pgvector retrieval |
 
 `actions.action_key` carries a **unique constraint** in the schema — idempotency is enforced by the database, not by application-level "best effort" checks. An insert with a duplicate key is a no-op, not a new row.
+
+**Implemented so far (Phase 2, `database/migrations/0001_init.sql`):** only `assets` and `incidents`, deliberately — everything else above is the target shape for later phases, not built ahead of need. Two differences from the table above, both intentional: `assets` has a `code` column (the stable public identifier, see §9) in addition to `id`; `incidents.idempotency_key` carries its own unique constraint directly (simpler than `actions.action_key` since intake has no separate action-dispatch step yet). Both tables have RLS enabled with a public-`SELECT`-only policy — see §9's reads-vs-writes split.
 
 ---
 

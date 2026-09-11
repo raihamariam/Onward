@@ -1,0 +1,60 @@
+{
+  "id": "2LTZ0WR1nIjRqlaU",
+  "name": "WF-01 Incident Intake",
+  "description": "Onward Phase 2: receives an incident report against a registered asset, validates it, resolves and checks the asset, deduplicates by idempotency key, and persists the incident to Supabase. No AI, no recovery logic — intake only.",
+  "active": false,
+  "settings": { "executionOrder": "v1", "availableInMCP": true },
+  "nodes": [
+    { "id": "16601f4e-8b25-4c82-aae9-f96a49c0d138", "name": "Incident Webhook", "type": "n8n-nodes-base.webhook", "typeVersion": 2.1, "position": [200, 400], "parameters": { "httpMethod": "POST", "path": "incident-intake", "responseMode": "responseNode", "options": {} }, "webhookId": "6d91b4d1-076e-4864-abee-22ef53e75751" },
+    { "id": "d6adf292-5de1-4ba5-9399-7349ae1047dd", "name": "Normalize Input", "type": "n8n-nodes-base.set", "typeVersion": 3.5, "position": [420, 400], "parameters": { "mode": "manual", "includeOtherFields": false, "assignments": { "assignments": [
+      { "id": "assign-asset-code", "name": "asset_code", "value": "={{ $json.body?.asset_code ?? $json.asset_code ?? \"\" }}", "type": "string" },
+      { "id": "assign-description", "name": "description", "value": "={{ $json.body?.description ?? $json.description ?? \"\" }}", "type": "string" },
+      { "id": "assign-idempotency-key", "name": "idempotency_key", "value": "={{ $json.body?.idempotency_key ?? $json.idempotency_key ?? \"\" }}", "type": "string" },
+      { "id": "assign-source", "name": "source", "value": "={{ $json.body?.source ?? $json.source ?? \"web\" }}", "type": "string" }
+    ] } } },
+    { "id": "7719923d-6764-48eb-b228-a8730ac42ee4", "name": "Validate Required Fields", "type": "n8n-nodes-base.if", "typeVersion": 2.2, "position": [640, 400], "parameters": { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" }, "combinator": "and", "conditions": [
+      { "leftValue": "={{ $json.asset_code }}", "operator": { "type": "string", "operation": "notEmpty" }, "rightValue": "" },
+      { "leftValue": "={{ $json.description }}", "operator": { "type": "string", "operation": "notEmpty" }, "rightValue": "" },
+      { "leftValue": "={{ $json.idempotency_key }}", "operator": { "type": "string", "operation": "notEmpty" }, "rightValue": "" }
+    ] } } },
+    { "id": "b07fd6a0-6fe8-4a6b-8e58-11a11b0eeca7", "name": "Lookup Asset", "type": "n8n-nodes-base.supabase", "typeVersion": 1, "position": [860, 260], "parameters": { "resource": "row", "operation": "getAll", "tableId": "assets", "returnAll": false, "limit": 1, "filterType": "manual", "matchType": "allFilters", "filters": { "conditions": [
+      { "keyName": "code", "condition": "eq", "keyValue": "={{ $(\"Normalize Input\").item.json.asset_code }}" }
+    ] } }, "alwaysOutputData": true },
+    { "id": "4a54c1a5-2cb5-4ed0-9c3e-1bbc29b03f70", "name": "Asset Found?", "type": "n8n-nodes-base.if", "typeVersion": 2.2, "position": [1080, 200], "parameters": { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" }, "combinator": "and", "conditions": [
+      { "leftValue": "={{ $json.id }}", "operator": { "type": "string", "operation": "notEmpty" }, "rightValue": "" }
+    ] } } },
+    { "id": "c57fc954-bc12-4692-8a61-824c4047e635", "name": "Asset Active?", "type": "n8n-nodes-base.if", "typeVersion": 2.2, "position": [1300, 140], "parameters": { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" }, "combinator": "and", "conditions": [
+      { "leftValue": "={{ $json.status }}", "operator": { "type": "string", "operation": "equals" }, "rightValue": "active" }
+    ] } } },
+    { "id": "9b2a3670-1bfb-4554-a639-95ac3eef71e0", "name": "Check Existing Incident", "type": "n8n-nodes-base.supabase", "typeVersion": 1, "position": [1520, 80], "parameters": { "resource": "row", "operation": "getAll", "tableId": "incidents", "returnAll": false, "limit": 1, "filterType": "manual", "matchType": "allFilters", "filters": { "conditions": [
+      { "keyName": "idempotency_key", "condition": "eq", "keyValue": "={{ $(\"Normalize Input\").item.json.idempotency_key }}" }
+    ] } }, "alwaysOutputData": true },
+    { "id": "f78067cc-659c-4ce0-8d35-c284f7f1ae5a", "name": "Already Recorded?", "type": "n8n-nodes-base.if", "typeVersion": 2.2, "position": [1740, 40], "parameters": { "conditions": { "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" }, "combinator": "and", "conditions": [
+      { "leftValue": "={{ $json.id }}", "operator": { "type": "string", "operation": "notEmpty" }, "rightValue": "" }
+    ] } } },
+    { "id": "1e61512c-f1b1-419a-8a35-6aa3fd0ecadf", "name": "Respond 200 Duplicate", "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1.5, "position": [1960, 200], "parameters": { "respondWith": "json", "responseBody": "={{ { incident_id: $json.id, asset_id: $json.asset_id, status: $json.status, idempotency_key: $json.idempotency_key, duplicate: true } }}", "options": { "responseCode": 200 } } },
+    { "id": "4d652a35-60ca-4d67-acf1-625674f963b0", "name": "Insert Incident", "type": "n8n-nodes-base.supabase", "typeVersion": 1, "position": [1960, -40], "parameters": { "resource": "row", "operation": "create", "tableId": "incidents", "dataToSend": "defineBelow", "fieldsUi": { "fieldValues": [
+      { "fieldId": "asset_id", "fieldValue": "={{ $(\"Lookup Asset\").item.json.id }}" },
+      { "fieldId": "description", "fieldValue": "={{ $(\"Normalize Input\").item.json.description }}" },
+      { "fieldId": "idempotency_key", "fieldValue": "={{ $(\"Normalize Input\").item.json.idempotency_key }}" },
+      { "fieldId": "source", "fieldValue": "={{ $(\"Normalize Input\").item.json.source }}" },
+      { "fieldId": "status", "fieldValue": "received" }
+    ] } }, "onError": "continueErrorOutput" },
+    { "id": "63bc31b7-1d09-451d-b235-09e2eaa7b092", "name": "Respond 201 Created", "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1.5, "position": [2180, -160], "parameters": { "respondWith": "json", "responseBody": "={{ { incident_id: $json.id, asset_id: $json.asset_id, status: $json.status, idempotency_key: $json.idempotency_key, reported_at: $json.reported_at, duplicate: false } }}", "options": { "responseCode": 201 } } },
+    { "id": "8e67dd42-f8ed-413b-902a-890957fc6b12", "name": "Respond 500 Persistence Failed", "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1.5, "position": [2180, 80], "parameters": { "respondWith": "json", "responseBody": "={{ { error: 'persistence_failed', message: 'The incident could not be saved. Please retry.' } }}", "options": { "responseCode": 500 } } },
+    { "id": "d2f48701-8def-4f6f-8326-f1e5f971e7a7", "name": "Respond 422 Inactive Asset", "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1.5, "position": [1300, 360], "parameters": { "respondWith": "json", "responseBody": "={{ { error: 'asset_not_active', message: 'Asset ' + $('Lookup Asset').item.json.code + ' is ' + $('Lookup Asset').item.json.status + ', not active' } }}", "options": { "responseCode": 422 } } },
+    { "id": "a090e7cd-70d5-47ed-9f8e-690bc7161d73", "name": "Respond 404 Unknown Asset", "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1.5, "position": [1080, 420], "parameters": { "respondWith": "json", "responseBody": "={{ { error: 'unknown_asset', message: 'No registered asset matches asset_code ' + $('Normalize Input').item.json.asset_code } }}", "options": { "responseCode": 404 } } },
+    { "id": "8b08d29d-e71f-4a9d-9722-5d081f575553", "name": "Respond 400 Invalid", "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1.5, "position": [860, 620], "parameters": { "respondWith": "json", "responseBody": "={{ { error: 'invalid_request', message: 'asset_code, description, and idempotency_key are all required' } }}", "options": { "responseCode": 400 } } }
+  ],
+  "connections": {
+    "Incident Webhook": { "main": [[{ "node": "Normalize Input", "type": "main", "index": 0 }]] },
+    "Normalize Input": { "main": [[{ "node": "Validate Required Fields", "type": "main", "index": 0 }]] },
+    "Validate Required Fields": { "main": [[{ "node": "Lookup Asset", "type": "main", "index": 0 }], [{ "node": "Respond 400 Invalid", "type": "main", "index": 0 }]] },
+    "Lookup Asset": { "main": [[{ "node": "Asset Found?", "type": "main", "index": 0 }]] },
+    "Asset Found?": { "main": [[{ "node": "Asset Active?", "type": "main", "index": 0 }], [{ "node": "Respond 404 Unknown Asset", "type": "main", "index": 0 }]] },
+    "Asset Active?": { "main": [[{ "node": "Check Existing Incident", "type": "main", "index": 0 }], [{ "node": "Respond 422 Inactive Asset", "type": "main", "index": 0 }]] },
+    "Check Existing Incident": { "main": [[{ "node": "Already Recorded?", "type": "main", "index": 0 }]] },
+    "Already Recorded?": { "main": [[{ "node": "Respond 200 Duplicate", "type": "main", "index": 0 }], [{ "node": "Insert Incident", "type": "main", "index": 0 }]] },
+    "Insert Incident": { "main": [[{ "node": "Respond 201 Created", "type": "main", "index": 0 }], [{ "node": "Respond 500 Persistence Failed", "type": "main", "index": 0 }]] }
+  }
+}
