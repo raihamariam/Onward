@@ -3,7 +3,7 @@
   "name": "WF-01 Incident Intake",
   "description": "Onward Phase 2: receives an incident report against a registered asset, validates it, resolves and checks the asset, deduplicates by idempotency key, and persists the incident to Supabase. Phase 3 addition: fire-and-forget triggers WF-02 after a successful insert. No AI validation or recovery logic lives here.",
   "active": true,
-  "note": "As of this export, the live/published version does NOT yet include the Trigger Intelligence node below — update_workflow created a new draft version that has not been published. See CLAUDE.md / Phase 3 report blockers.",
+  "note": "Published and live-gate-tested (Phase 3, second pass) — the Trigger Intelligence node below is live; verified via search_workflow_executions/get_workflow_execution that submitting a real incident fires WF-02 automatically, and that a duplicate (same idempotency_key) resubmission does not.",
   "settings": { "executionOrder": "v1", "availableInMCP": true, "binaryMode": "separate" },
   "nodes": [
     { "id": "16601f4e-8b25-4c82-aae9-f96a49c0d138", "name": "Incident Webhook", "type": "n8n-nodes-base.webhook", "typeVersion": 2.1, "position": [208, 400], "parameters": { "httpMethod": "POST", "path": "incident-intake", "responseMode": "responseNode", "options": {} }, "webhookId": "6d91b4d1-076e-4864-abee-22ef53e75751" },

@@ -3,11 +3,17 @@ runtime must incur zero additional spend, so it runs on Google's free,
 rate-limited Gemini tier rather than a paid API or the Anthropic
 subscription this session itself runs on).
 
-Model: gemini-3-flash-preview. Free-tier limits (checked Sept 2026): 10
-requests/minute, 250k tokens/minute, 1,500 requests/day — far more than a
-hackathon needs. Chosen over gemini-3.1-flash-lite (higher RPM/lower
-quality trade-off we don't need, since RPD isn't our constraint) and over
-gemini-2.5-flash (lower daily cap, same tier of capability).
+Model: gemini-3-flash-preview. Free-tier limits are project/key-specific —
+published figures (blog posts said 1,500 requests/day) did not match what
+this project actually got from the API: a live Phase 3 gate run hit a real
+429 RESOURCE_EXHAUSTED after ~20 calls in a few minutes, with the API's own
+error body naming the limit explicitly: `GenerateRequestsPerDayPerProjectPerModel-FreeTier`,
+quotaValue 20. Treat the error response as ground truth over any
+documentation when reasoning about free-tier capacity — a hackathon demo
+plans its live-call budget around ~20/day per model on a fresh key, not the
+higher published number. This is exactly why the retry-then-safe-fallback
+behavior in interpret_incident() exists: quota exhaustion is a real,
+expected failure mode at this tier, not an edge case.
 
 Data-handling rule, not just documentation: Google's unpaid-tier terms
 permit using submitted content (including human review) to improve their
@@ -20,6 +26,7 @@ means here.
 from __future__ import annotations
 
 import base64
+import binascii
 import json
 import logging
 import os
@@ -52,11 +59,12 @@ class GeminiProvider(InterpretationProvider):
     ) -> dict | None:
         parts = [types.Part.from_text(text=context_text)]
         if image_base64 and image_media_type:
-            parts.append(
-                types.Part.from_bytes(
-                    data=base64.b64decode(image_base64), mime_type=image_media_type
-                )
-            )
+            try:
+                image_bytes = base64.b64decode(image_base64, validate=True)
+            except (binascii.Error, ValueError) as e:
+                logger.warning("Unsupported/malformed image_base64: %s", e)
+                return None
+            parts.append(types.Part.from_bytes(data=image_bytes, mime_type=image_media_type))
 
         try:
             response = self._client.models.generate_content(

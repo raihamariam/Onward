@@ -13,8 +13,11 @@ Still to come:
 
 from fastapi import FastAPI
 
+from app.env import load_repo_root_env
 from app.interpret.service import interpret_incident
 from app.schemas.incident import IncidentIntelligence, InterpretRequest
+
+load_repo_root_env()
 
 app = FastAPI(title="Onward Decision Engine")
 
