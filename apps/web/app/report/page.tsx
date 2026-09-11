@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 type IntakeResult =
@@ -31,25 +31,12 @@ function ReportForm() {
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<IntakeResult | null>(null);
 
-  const webhookUrl = useMemo(
-    () => process.env.NEXT_PUBLIC_N8N_INCIDENT_WEBHOOK_URL ?? "",
-    []
-  );
-
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!webhookUrl) {
-      setResult({
-        kind: "error",
-        status: 0,
-        message: "NEXT_PUBLIC_N8N_INCIDENT_WEBHOOK_URL is not configured.",
-      });
-      return;
-    }
     setSubmitting(true);
     setResult(null);
     try {
-      const res = await fetch(webhookUrl, {
+      const res = await fetch("/api/report", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -74,14 +74,17 @@ def check(label: str, condition: bool, detail: str = "") -> bool:
 
 def main() -> int:
     env = {**load_env(ENV_PATH), **os.environ}
-    webhook_url = env.get("NEXT_PUBLIC_N8N_INCIDENT_WEBHOOK_URL", "")
+    webhook_url = (
+        env.get("INCIDENT_WEBHOOK_URL")
+        or env.get("N8N_WEBHOOK_BASE_URL", "")
+    )
     supabase_url = env.get("SUPABASE_URL", "")
     publishable_key = env.get("SUPABASE_PUBLISHABLE_KEY", "")
 
     missing = [
         name
         for name, val in [
-            ("NEXT_PUBLIC_N8N_INCIDENT_WEBHOOK_URL", webhook_url),
+            ("INCIDENT_WEBHOOK_URL", webhook_url),
             ("SUPABASE_URL", supabase_url),
             ("SUPABASE_PUBLISHABLE_KEY", publishable_key),
         ]
