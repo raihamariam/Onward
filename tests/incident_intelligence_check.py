@@ -1,13 +1,13 @@
 """Phase 3 gate test — Incident Intelligence, against the real live system.
 
-Requires GEMINI_API_KEY to be set wherever decision-engine is running (the
-default provider — see CLAUDE.md §5/§7 zero-spend-runtime rule; local .env
+Requires GROQ_API_KEY to be set wherever decision-engine is running (the
+active provider — see CLAUDE.md §5/§7 zero-spend-runtime rule; local .env
 is enough for local runs, a deployed/tunneled instance needs it in its own
-environment). Only ever run this against synthetic/non-sensitive data —
-Gemini's free tier may use submitted content to improve Google's products.
-Exercises decision-engine's /incident/interpret directly — the same call
-WF-02 makes — so it proves real model behavior independent of whether
-WF-02 itself is reachable from n8n Cloud yet.
+environment). Only ever run this against synthetic/non-sensitive data — a
+free-tier provider's terms typically permit using submitted content to
+improve their products. Exercises decision-engine's /incident/interpret
+directly — the same call WF-02 makes — so it proves real model behavior
+independent of whether WF-02 itself is reachable from n8n Cloud yet.
 
 Cases A-F match the Phase 3 task's required gate test:
   A. clear text -> confident structured power-failure classification
@@ -123,8 +123,8 @@ def assert_no_operational_facts(label: str, body: dict) -> bool:
 def main() -> int:
     env = {**load_env(ENV_PATH), **os.environ}
     base_url = env.get("DECISION_ENGINE_URL", "http://127.0.0.1:8000")
-    provider = env.get("MODEL_PROVIDER", "gemini").lower()
-    required_key = "ANTHROPIC_API_KEY" if provider == "anthropic" else "GEMINI_API_KEY"
+    provider = env.get("MODEL_PROVIDER", "groq").lower()
+    required_key = "GEMINI_API_KEY" if provider == "gemini" else "GROQ_API_KEY"
     # Best-effort local check only — decision-engine may be running
     # elsewhere (tunneled/deployed) with the key set in its own
     # environment, not this one. A pass here doesn't guarantee the remote

@@ -1,7 +1,12 @@
-"""Gemini Developer API — the default provider (CLAUDE.md §7: Onward's
-runtime must incur zero additional spend, so it runs on Google's free,
-rate-limited Gemini tier rather than a paid API or the Anthropic
-subscription this session itself runs on).
+"""Gemini Developer API — kept as the manual fallback provider (set
+MODEL_PROVIDER=gemini), not the active default. Groq (qwen/qwen3.8-27b) is
+active instead because Gemini's real free-tier daily quota proved too low
+for this project's actual development/live-gate pace — see below. Gemini
+stays in the codebase specifically *because* of that failure mode: it's a
+small (~90 lines), correct, already-tested second option if Groq itself
+becomes rate-limited or unavailable during a demo, at effectively zero
+maintenance cost (one class, behind the same interface, changed with one
+env var). CLAUDE.md §5's zero-spend-runtime principle governs both.
 
 Model: gemini-3-flash-preview. Free-tier limits are project/key-specific —
 published figures (blog posts said 1,500 requests/day) did not match what
@@ -13,7 +18,8 @@ documentation when reasoning about free-tier capacity — a hackathon demo
 plans its live-call budget around ~20/day per model on a fresh key, not the
 higher published number. This is exactly why the retry-then-safe-fallback
 behavior in interpret_incident() exists: quota exhaustion is a real,
-expected failure mode at this tier, not an edge case.
+expected failure mode at this tier, not an edge case, and it's also why
+Groq (a materially higher usable budget) is the active provider now.
 
 Data-handling rule, not just documentation: Google's unpaid-tier terms
 permit using submitted content (including human review) to improve their

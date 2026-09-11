@@ -2,24 +2,27 @@
 tier request quota proved too low for development/live-gate testing, ~20
 requests/day per model on a fresh key — see gemini.py's docstring for the
 live-verified evidence). Groq's free tier is materially more usable for
-this project's iteration pace. Still a free/low-cost API, not the Anthropic
-subscription this session itself runs on — CLAUDE.md §5's zero-spend-
-runtime principle still applies; only the specific provider changed.
+this project's iteration pace. CLAUDE.md §5's zero-spend-runtime principle
+still applies; only the specific provider changed.
 
 Model: qwen/qwen3.8-27b — vision-capable (accepts image + text; Groq's docs
 list a 3-image-per-request, 20MB-per-image limit, well above what a single
 incident photo needs) and supports strict `json_schema` structured outputs
-(not just the looser `json_object` mode), so — same as the Gemini and
-Anthropic providers before it — the response is schema-constrained by the
-API itself, not left to prompting alone.
+(not just the looser `json_object` mode), so — same as `gemini.py` — the
+response is schema-constrained by the API itself, not left to prompting
+alone.
 
 Uses Groq's official Python SDK (OpenAI-compatible interface) rather than
 hand-rolled HTTP: it's already a proper typed client with its own
-exception hierarchy (mirroring the pattern already used for the Anthropic
-and Gemini providers), and Groq's API is not literally OpenAI's endpoint —
-routing an `openai` SDK client at it would be compatibility code for a
-dependency this project doesn't otherwise need, whereas `groq` is the
-correct, minimal, purpose-built one.
+exception hierarchy (mirroring the pattern already used in `gemini.py`),
+and Groq's API is not literally OpenAI's endpoint — routing an `openai`
+SDK client at it would be compatibility code for a dependency this project
+doesn't otherwise need, whereas `groq` is the correct, minimal,
+purpose-built one.
+
+Not the Anthropic subscription this development session itself runs on —
+CLAUDE.md §5's zero-spend-runtime principle governs the choice of active
+provider, not a hard dependency on any one vendor.
 
 Live-observed limit (same "trust the real error over documentation" lesson
 as gemini.py): the on-demand free tier enforces an output-tokens-per-minute
@@ -46,9 +49,9 @@ logger = logging.getLogger(__name__)
 
 RESPONSE_SCHEMA_NAME = "incident_intelligence"
 
-# Mirrors app.schemas.incident.ModelOutput exactly. Hand-written (same
-# approach as anthropic_provider.py's TOOL_SCHEMA) rather than derived from
-# Pydantic's model_json_schema(), because Groq/OpenAI-style strict mode has
+# Mirrors app.schemas.incident.ModelOutput exactly. Hand-written rather
+# than derived from Pydantic's model_json_schema(), because Groq/OpenAI-style
+# strict mode has
 # extra requirements Pydantic doesn't emit by default: every property must
 # appear in `required` (nullable fields use a ["type", "null"] union rather
 # than being omitted) and every object needs `additionalProperties: false`.

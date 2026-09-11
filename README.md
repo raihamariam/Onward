@@ -38,7 +38,7 @@ bash tests/foundation_check.sh
 
 Copy `.env.example` to `.env` and fill in real values — see that file for
 what's required and which credentials are still blockers (Supabase project,
-Anthropic key, Calendar/Slack/Gmail).
+Groq key, Calendar/Slack/Gmail).
 
 ## Current phase
 

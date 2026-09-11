@@ -2,14 +2,14 @@
 
 A FakeProvider stands in for whichever real model backs interpretation —
 these tests prove the validation/retry/fallback/policy logic is correct,
-independent of any specific SDK (Gemini, Anthropic, or whatever comes
-next). That's the point of the provider abstraction: this file doesn't
-change when the active provider does.
+independent of any specific SDK (Groq, Gemini, or whatever comes next).
+That's the point of the provider abstraction: this file doesn't change
+when the active provider does.
 
 Real model-quality evidence (does it actually classify well, handle
 genuinely ambiguous/conflicting real-world input) is the Phase 3 live gate
 test (tests/incident_intelligence_check.py at the repo root), which needs
-a real GEMINI_API_KEY and is run separately.
+a real GROQ_API_KEY and is run separately.
 """
 
 from __future__ import annotations
@@ -166,7 +166,13 @@ def test_missing_default_provider_api_key_degrades_safely_instead_of_crashing(mo
     assert "GROQ_API_KEY" in result.review_reason
 
 
-def test_missing_provider_api_key_degrades_safely_instead_of_crashing(monkeypatch):
+def test_gemini_fallback_provider_missing_key_degrades_safely(monkeypatch):
+    """Also proves the abstraction is actually swappable, not just
+    theoretically so: switching MODEL_PROVIDER to the fallback changes
+    which key get_provider() demands, with zero other code changes. Gemini
+    is kept specifically as this fallback (see gemini.py) — Anthropic was
+    removed from the runtime entirely rather than kept as a second unused
+    option (Phase 3 provider cleanup)."""
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setenv("MODEL_PROVIDER", "gemini")
     result = interpret_incident(make_request("won't turn on"))  # no provider injected
@@ -174,15 +180,11 @@ def test_missing_provider_api_key_degrades_safely_instead_of_crashing(monkeypatc
     assert "GEMINI_API_KEY" in result.review_reason
 
 
-def test_model_provider_env_var_switches_provider(monkeypatch):
-    """Proves the abstraction is actually swappable, not just theoretically
-    so: switching MODEL_PROVIDER changes which key get_provider() demands,
-    with zero other code changes."""
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+def test_unknown_model_provider_degrades_safely(monkeypatch):
     monkeypatch.setenv("MODEL_PROVIDER", "anthropic")
     result = interpret_incident(make_request("won't turn on"))
     assert result.requires_human_review is True
-    assert "ANTHROPIC_API_KEY" in result.review_reason
+    assert "Unknown MODEL_PROVIDER" in result.review_reason
 
 
 def test_never_invents_operational_facts():

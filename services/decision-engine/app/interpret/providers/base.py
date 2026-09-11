@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 
 
 class InterpretationProvider(ABC):
-    name: str  # the specific model id, e.g. "gemini-3-flash-preview"
+    name: str  # the specific model id, e.g. "qwen/qwen3.8-27b"
     provider_id: str  # short identifier stored in IncidentIntelligence.provider
 
     @abstractmethod
