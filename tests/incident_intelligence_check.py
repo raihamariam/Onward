@@ -1,10 +1,13 @@
 """Phase 3 gate test — Incident Intelligence, against the real live system.
 
-Requires ANTHROPIC_API_KEY to be set wherever decision-engine is running
-(local .env is enough for local runs; a deployed/tunneled instance needs it
-in its own environment). Exercises decision-engine's /incident/interpret
-directly — the same call WF-02 makes — so it proves real model behavior
-independent of whether WF-02 itself is reachable from n8n Cloud yet.
+Requires GEMINI_API_KEY to be set wherever decision-engine is running (the
+default provider — see CLAUDE.md §5/§7 zero-spend-runtime rule; local .env
+is enough for local runs, a deployed/tunneled instance needs it in its own
+environment). Only ever run this against synthetic/non-sensitive data —
+Gemini's free tier may use submitted content to improve Google's products.
+Exercises decision-engine's /incident/interpret directly — the same call
+WF-02 makes — so it proves real model behavior independent of whether
+WF-02 itself is reachable from n8n Cloud yet.
 
 Cases A-F match the Phase 3 task's required gate test:
   A. clear text -> confident structured power-failure classification
@@ -105,8 +108,15 @@ def assert_no_operational_facts(label: str, body: dict) -> bool:
 def main() -> int:
     env = {**load_env(ENV_PATH), **os.environ}
     base_url = env.get("DECISION_ENGINE_URL", "http://127.0.0.1:8000")
-    if not env.get("ANTHROPIC_API_KEY"):
-        print("FAIL: ANTHROPIC_API_KEY not set — cannot run a real gate test (see Phase 3 report)")
+    provider = env.get("MODEL_PROVIDER", "gemini").lower()
+    required_key = "ANTHROPIC_API_KEY" if provider == "anthropic" else "GEMINI_API_KEY"
+    # Best-effort local check only — decision-engine may be running
+    # elsewhere (tunneled/deployed) with the key set in its own
+    # environment, not this one. A pass here doesn't guarantee the remote
+    # instance is configured; a fail here reliably means "check locally
+    # first" when running everything on one machine.
+    if not env.get(required_key):
+        print(f"FAIL: {required_key} not set locally — cannot run a real gate test (see Phase 3 report)")
         return 1
 
     all_ok = True

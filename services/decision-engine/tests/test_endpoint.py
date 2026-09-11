@@ -1,15 +1,15 @@
 """Confirms the HTTP wiring for POST /incident/interpret, independent of the
-interpretation logic itself (covered in test_interpret.py)."""
+interpretation logic itself (covered in test_interpret.py) and independent
+of which provider is active (patches get_provider, not an SDK client)."""
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from app.interpret.service import TOOL_NAME
 from app.main import app
+from tests.test_interpret import HIGH_CONFIDENCE_PAYLOAD, FakeProvider
 
 client = TestClient(app)
 
@@ -27,27 +27,11 @@ PAYLOAD = {
 
 
 def test_incident_interpret_endpoint_returns_valid_schema():
-    fake_input = {
-        "incident_type": "power_failure",
-        "symptoms": ["device does not power on"],
-        "visual_observations": [],
-        "severity": "high",
-        "safety_risk": False,
-        "confidence": 0.9,
-        "likely_faults": [],
-        "required_capability": "AV_SUPPORT",
-        "requires_human_review": False,
-        "evidence_conflict": False,
-    }
-    fake_response = SimpleNamespace(
-        content=[SimpleNamespace(type="tool_use", name=TOOL_NAME, input=fake_input)]
-    )
-    mock_anthropic_client = MagicMock()
-    mock_anthropic_client.messages.create.return_value = fake_response
-
-    with patch("app.interpret.service.anthropic.Anthropic", return_value=mock_anthropic_client):
-        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key-not-real"}):
-            res = client.post("/incident/interpret", json=PAYLOAD)
+    with patch(
+        "app.interpret.service.get_provider",
+        return_value=FakeProvider(HIGH_CONFIDENCE_PAYLOAD),
+    ):
+        res = client.post("/incident/interpret", json=PAYLOAD)
 
     assert res.status_code == 200
     body = res.json()

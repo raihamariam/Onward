@@ -52,12 +52,13 @@ class LikelyFault(BaseModel):
     confidence: float = Field(ge=0, le=1)
 
 
-class IncidentIntelligence(BaseModel):
-    """What the AI inferred. Never contains operational facts (availability,
-    schedules, inventory, cost) — those don't exist at this layer."""
+class ModelOutput(BaseModel):
+    """Exactly what a model provider is asked to produce — nothing this
+    codebase computes itself (incident_id, which model/provider answered,
+    when). Kept separate from IncidentIntelligence so every provider
+    implementation validates against the same shape regardless of how it
+    talks to its underlying API (see app/interpret/providers/)."""
 
-    schema_version: str = "1.0"
-    incident_id: str
     incident_type: str
     symptoms: list[str] = Field(default_factory=list)
     visual_observations: list[str] = Field(default_factory=list)
@@ -69,8 +70,17 @@ class IncidentIntelligence(BaseModel):
     requires_human_review: bool
     review_reason: str | None = None
     evidence_conflict: bool = False
+
+
+class IncidentIntelligence(ModelOutput):
+    """What the AI inferred, plus provenance. Never contains operational
+    facts (availability, schedules, inventory, cost) — those don't exist at
+    this layer."""
+
+    schema_version: str = "1.0"
+    incident_id: str
     model: str
-    provider: str = "anthropic"
+    provider: str
     interpreted_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -113,4 +123,5 @@ def fallback_intelligence(incident_id: str, reason: str) -> IncidentIntelligence
         requires_human_review=True,
         review_reason=reason,
         model="none",
+        provider="none",
     )

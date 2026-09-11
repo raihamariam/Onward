@@ -79,6 +79,8 @@ Phase B — demo/presentation (UI polish, pitch rehearsal, judge-interaction scr
 
 **AI vs. deterministic logic.** AI's job is understanding: turning a photo + a spoken sentence + asset context into a structured, typed incident. Everything downstream of that — is this room available, is this technician free, does this plan fit in the time window, what does this actually cost — is deterministic code reading real state. The test for "should this be an LLM call": *does answering it require understanding ambiguous human input, or does it require reading a fact that exists in a database?* If it's the latter, it is not an LLM's job, ever, even "just this once for the demo."
 
+**Zero-spend runtime (decided in Phase 3).** Onward's *running system* must not bill against any paid API or against the Anthropic subscription this development session itself runs on — those are two separate things, and conflating them was the mistake to avoid. The model provider behind incident interpretation is swappable (`app/interpret/providers/`, `MODEL_PROVIDER` env var) specifically so the runtime can sit on a free tier (Gemini, by default) while development tooling (this Claude Code session) remains unaffected. A free tier's terms typically permit the provider to use submitted content to improve their products — so only synthetic/non-sensitive hackathon data (the seeded assets, test incident descriptions) may ever be sent to it; this is a hard rule, not a preference, until a paid tier or a provider with different terms is deliberately chosen.
+
 **Real data over hallucinated state.** Every number that appears in a recovery plan (ETA, capacity, distance, cost) must trace back to a database row. If the seed data doesn't have it, the plan can't use it — fix the seed data, don't let the model fill the gap.
 
 **Dynamic recovery over hardcoding.** The recovery engine generates and scores candidates from live resource state. It is allowed to produce the "obviously right" answer for the canonical demo scenario, but it must produce a *different* answer when the underlying data changes, and that must be provable with a test (see §16, §17).
@@ -111,12 +113,13 @@ Phase B — demo/presentation (UI polish, pitch rehearsal, judge-interaction scr
                  └───────────┬───────────┘
                              ▼
                 n8n  (WF-02 intelligence)
-        fetch asset context + pgvector top-k retrieval
+        fetch asset context + prior incidents (pgvector deferred, §7)
                              │
                              ▼
         DECISION-ENGINE SERVICE  /incident/interpret
-        (Claude call lives HERE — forced structured
-         output, Pydantic-validated, one retry on
+        (model call lives HERE, behind a swappable
+         provider — forced structured output,
+         Pydantic-validated, one retry on
          invalid schema, confidence + safety flags)
                              │
                              ▼
@@ -169,9 +172,9 @@ Next.js  —  n8n  —  decision-engine (FastAPI)  —  Supabase (Postgres+Stora
 | Layer | Owns | Does not own |
 |---|---|---|
 | **Frontend (Next.js/Vercel)** | QR-driven incident report UI, photo/audio capture, ops dashboard (impact view, plan comparison, approve/reject), status polling | Any business logic, any direct write to Calendar/Slack/Gmail, any decision about which plan is best |
-| **n8n** | Sequencing (WF-01…06), all calls to external real-world systems, retries/timeouts on those calls, the approval wait/resume, fan-out/fan-in for parallel execution, assembling request payloads for the decision-engine from Postgres reads | Computing scores, validating recovery-plan feasibility, running the Claude call, storing anything n8n itself considers "the record" (Postgres is the record) |
-| **AI/model layer (Claude Sonnet 5, inside decision-engine)** | Interpreting text+image+trusted-asset-context into a structured `IncidentIntelligence` (`app/schemas/incident.py`) via one forced tool-call — symptoms, category, severity, safety risk, confidence, review flag; explaining a chosen plan in plain language for the UI/demo (later) | Deciding room capacity, technician availability, inventory counts, event timing, whether a plan is valid, or anything requiring "the current state of the world" — enforced structurally: no field in the schema can hold an operational fact (see `test_never_invents_operational_facts`) |
-| **Decision-engine (FastAPI)** | `/incident/interpret` (Phase 3), `/impact/calculate`, `/recovery/plan` (Phase 4) — all pure, stateless, unit-tested functions; owns the shared Pydantic schemas that are the contract between every stage | Any database connection, any external API besides Anthropic's, any orchestration/sequencing decision |
+| **n8n** | Sequencing (WF-01…06), all calls to external real-world systems, retries/timeouts on those calls, the approval wait/resume, fan-out/fan-in for parallel execution, assembling request payloads for the decision-engine from Postgres reads | Computing scores, validating recovery-plan feasibility, running the model call, storing anything n8n itself considers "the record" (Postgres is the record) |
+| **AI/model layer (Gemini 3 Flash by default, inside decision-engine)** | Interpreting text+image+trusted-asset-context into a structured `IncidentIntelligence` (`app/schemas/incident.py`) via one forced-schema call — symptoms, category, severity, safety risk, confidence, review flag; explaining a chosen plan in plain language for the UI/demo (later). Provider is swappable (`app/interpret/providers/`, `MODEL_PROVIDER` env var — `gemini` default, `anthropic` available); §5's zero-spend-runtime principle governs the default, not a hard dependency on any one vendor | Deciding room capacity, technician availability, inventory counts, event timing, whether a plan is valid, or anything requiring "the current state of the world" — enforced structurally: no field in the schema can hold an operational fact (see `test_never_invents_operational_facts`) |
+| **Decision-engine (FastAPI)** | `/incident/interpret` (Phase 3), `/impact/calculate`, `/recovery/plan` (Phase 4) — all pure, stateless, unit-tested functions; owns the shared Pydantic schemas that are the contract between every stage | Any database connection, any external API besides the active model provider's, any orchestration/sequencing decision |
 | **Data layer (Supabase Postgres)** | System-of-record for assets, locations, incidents, incident_intelligence, dependencies, events, technicians, inventory, resources, recovery_plans, actions, audit_log — the single source of organizational truth | — |
 | **Retrieval (Supabase pgvector)** | *Deferred as of Phase 3* — no manuals/procedures exist yet to index (`knowledge/` is empty), so there is nothing to retrieve; building the pipeline now would be infrastructure with no content. Trusted context for interpretation is deterministic instead: the asset row + its prior incidents (already-existing tables), fetched by n8n and passed in. Revisit only once real manuals/knowledge documents actually exist. | Ever being treated as a source of truth for inventory, schedules, or availability, whenever it is eventually built |
 | **Storage (Supabase Storage)** | Incident photos, audio clips, manual source documents | — |
@@ -211,6 +214,8 @@ Six workflows, each a clear contract with an exit condition. Keep them modular �
 **WF-02 is implemented** (Phase 3): workflow id `fMQ15943GzYcH6bw`, exported at `n8n/exports/wf02-incident-intelligence.json`. It is a **sub-workflow, not a public endpoint** — it uses an Execute Workflow Trigger, not a webhook, and is invoked by WF-01 (a fire-and-forget `Execute Sub-workflow` node added to WF-01, `waitForSubWorkflow: false`, so intake's response latency and shape are unaffected either way). Two things worth knowing before touching either workflow again:
 - **A workflow with only an Execute Workflow Trigger cannot be run via the `execute_workflow` MCP tool** — that tool only drives Schedule/Webhook/Form/Chat triggers. To test WF-02 directly (not via WF-01), either add a temporary second trigger or exercise it by submitting a real incident through WF-01's webhook and then reading `search_workflow_executions`/`get_workflow_execution` for WF-02's id.
 - **`update_workflow` (used for WF-01's additive change) creates a new draft version — it does not republish the live one.** `get_workflow_details` distinguishes `versionId` (draft) from `activeVersionId` (what's actually running); they can differ after an edit. Check both before assuming an edit is live, and remember publishing is still gated on the user's explicit go-ahead each time (§9 below), same as any other consequential n8n action.
+
+**n8n Cloud → local decision-engine connectivity (dev/gate-testing only):** a free **Cloudflare Quick Tunnel** (`cloudflared tunnel --url http://localhost:8000` — no account, no signup, prints an ephemeral `*.trycloudflare.com` URL). Paste `<that url>/incident/interpret` into WF-02's "Call Decision Engine" node for the duration of a gate-test session; it changes every time the tunnel restarts, so it's never committed anywhere. This is explicitly a **dev/testing bridge, not production connectivity** — exposing a local port to the public internet is a real action with real exposure, so Claude Code will not start a tunnel (or any similar port-forwarding) without the user's explicit go-ahead in that moment, same as any other consequential action; a blocked attempt at this is expected behavior, not a bug to route around. The real production path is still deploying decision-engine somewhere with a stable URL (Railway/Render, per §16) — the tunnel only exists to make Phase 3 gate-testable before that deployment happens.
 
 **Stable asset identifiers:** `assets.code` (e.g. `AV-204`) is the public, human-facing identifier intake resolves against — never the internal `uuid` primary key. This is what a QR code will encode later (`/report?asset=<code>`); the intake contract was built against `code` from the start specifically so adding real QR codes never requires touching the resolution logic, only wiring a QR image to a URL Next.js already serves at `apps/web/app/report/page.tsx`.
 
@@ -295,7 +300,7 @@ For systems we don't have access to (CMMS, ERP, university room-booking software
 
 ## 14. Reliability strategy
 
-- **Retries** — n8n's built-in retry-on-fail with exponential backoff on every external call (Calendar, Slack, Gmail, decision-engine). Reasonable per-call timeouts (e.g., 10s for integrations, 15s for the interpretation call, which does the Claude round trip).
+- **Retries** — n8n's built-in retry-on-fail with exponential backoff on every external call (Calendar, Slack, Gmail, decision-engine). Reasonable per-call timeouts (e.g., 10s for integrations, 45s for the interpretation call, which does the model-provider round trip).
 - **Idempotency** — enforced by the `actions.action_key` unique constraint (§10) and by incident-level idempotency keys on WF-01 intake. Retried or duplicated requests never produce duplicate calendar events, emails, Slack messages, or work orders.
 - **Timeouts & fallbacks** — if the interpretation call fails or times out after one retry, the incident routes to human review with the raw input attached, rather than blocking. If recovery planning finds zero feasible plans, that's an explicit escalation state, not a crash.
 - **Partial failure** — WF-05's parallel actions are independent; if Slack fails but Calendar succeeds, overall status is `partial`, both outcomes are recorded, and the failure is visible in the dashboard/audit — no rollback of the succeeded action, because actions are additive and idempotent, not transactional.
@@ -330,8 +335,9 @@ onward/
 ├── services/
 │   └── decision-engine/         FastAPI, stateless, pure-function service
 │       ├── app/
-│       │   ├── schemas/         Shared Pydantic contracts (IncidentReport, ImpactResult, RecoveryPlan)
-│       │   ├── interpret/        Claude call + retry + confidence/safety logic
+│       │   ├── schemas/         Shared Pydantic contracts (IncidentIntelligence, ImpactResult, RecoveryPlan)
+│       │   ├── interpret/        Provider-agnostic orchestration + retry/confidence/safety logic
+│       │   │   └── providers/    One class per model provider (gemini.py default, anthropic_provider.py)
 │       │   ├── impact/           Dependency traversal → impact calculation
 │       │   └── recovery/         Candidate generation + constraints + scoring
 │       └── tests/
@@ -380,7 +386,7 @@ Seven milestones. Do not add more without a real reason — this list already co
 
 ## 18. Testing strategy
 
-- **Unit** — every decision-engine function (`interpret`, `impact`, `recovery`) is a pure function tested with `pytest` and fixture inputs; the Claude call is mocked for these tests. Schema tests confirm Pydantic models reject malformed data.
+- **Unit** — every decision-engine function (`interpret`, `impact`, `recovery`) is a pure function tested with `pytest` and fixture inputs; the model provider is swapped for a `FakeProvider` test double for these tests (see `app/interpret/providers/base.py`), never a specific SDK mock — so the tests don't change when the active provider does. Schema tests confirm Pydantic models reject malformed data.
 - **Integration** — n8n workflows tested with `mcp__claude_ai_n8n__test_workflow` (available directly in this environment) against fixture payloads, without touching real Slack/Calendar/Gmail credentials where avoidable.
 - **Workflow-level** — `validate_workflow` before any `publish_workflow` (which itself always requires explicit human confirmation, per §9).
 - **End-to-end** — the M5 script: real submission → real approval → independently-verified real side effects → audit trail — is the test that actually proves Track 2 readiness. Re-run it as a regression check after any change to WF-01…06 or the decision-engine contracts.
