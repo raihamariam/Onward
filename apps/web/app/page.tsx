@@ -63,6 +63,24 @@ const ACTION_LABEL: Record<string, string> = {
   inventory_decrement: "Allocate replacement unit",
 };
 
+const FAILURE_LABEL: Record<string, string> = {
+  capacity: "Capacity too small",
+  time_window: "Too slow",
+  location_status: "Unavailable",
+  technician_status: "Technician unavailable",
+  inventory_status: "Out of stock",
+  inventory_quantity: "Out of stock",
+  capability: "Capability mismatch",
+};
+
+function primaryFailedConstraint(p: Plan) {
+  return (p.constraints ?? []).find((c) => !c.passed) ?? null;
+}
+
+function capacityConstraint(p: Plan) {
+  return (p.constraints ?? []).find((c) => c.name === "capacity") ?? null;
+}
+
 const EXPECTED_ACTIONS_BY_PLAN: Record<string, string[]> = {
   repair_via_technician: ["work_order", "slack_notify"],
   replace_asset: ["work_order", "slack_notify", "inventory_decrement"],
@@ -241,31 +259,45 @@ function CommandViewInner() {
       <Shell step={4}>
         <p className="text-sm font-medium uppercase tracking-[0.3em] text-emerald-400">Recovery options</p>
         <div className="mt-8 grid w-full max-w-3xl grid-cols-1 gap-4 sm:grid-cols-3">
-          {plans.map((p) => (
-            <div
-              key={p.id}
-              className={`rounded-2xl border p-5 text-center ${
-                p.is_recommended
-                  ? "border-emerald-500/60 bg-emerald-500/10"
-                  : "border-neutral-800 bg-neutral-900/50"
-              }`}
-            >
-              <p className="text-sm font-semibold uppercase tracking-wide text-neutral-300">
-                {PLAN_LABEL[p.plan_type] ?? p.plan_type}
-              </p>
-              {p.resource_ref?.name && (
-                <p className="mt-1 text-neutral-400">{p.resource_ref.name}</p>
-              )}
-              <p className="mt-3 text-3xl font-bold">{p.estimated_recovery_minutes} min</p>
-              <p
-                className={`mt-2 text-xs font-semibold uppercase tracking-wide ${
-                  p.is_recommended ? "text-emerald-400" : p.feasible ? "text-neutral-400" : "text-red-400"
+          {plans.map((p) => {
+            const failed = primaryFailedConstraint(p);
+            const capacity = capacityConstraint(p);
+            const statusLabel = p.is_recommended
+              ? "Recommended"
+              : p.feasible
+              ? "Feasible"
+              : FAILURE_LABEL[failed?.name ?? ""] ?? "Not feasible";
+            // Prefer the failed constraint's own detail; for a feasible
+            // relocate plan, show the (passing) capacity detail instead —
+            // both are the backend's own text, never recomputed here.
+            const detail = failed?.detail ?? (p.feasible ? capacity?.detail : null);
+            return (
+              <div
+                key={p.id}
+                className={`rounded-2xl border p-5 text-center ${
+                  p.is_recommended
+                    ? "border-emerald-500/60 bg-emerald-500/10"
+                    : "border-neutral-800 bg-neutral-900/50"
                 }`}
               >
-                {p.is_recommended ? "Recommended" : p.feasible ? "Feasible" : "Too slow"}
-              </p>
-            </div>
-          ))}
+                <p className="text-sm font-semibold uppercase tracking-wide text-neutral-300">
+                  {PLAN_LABEL[p.plan_type] ?? p.plan_type}
+                </p>
+                {p.resource_ref?.name && (
+                  <p className="mt-1 text-neutral-400">{p.resource_ref.name}</p>
+                )}
+                <p className="mt-3 text-3xl font-bold">{p.estimated_recovery_minutes} min</p>
+                <p
+                  className={`mt-2 text-xs font-semibold uppercase tracking-wide ${
+                    p.is_recommended ? "text-emerald-400" : p.feasible ? "text-neutral-400" : "text-red-400"
+                  }`}
+                >
+                  {statusLabel}
+                </p>
+                {detail && <p className="mt-1 text-xs text-neutral-500">{detail}</p>}
+              </div>
+            );
+          })}
         </div>
 
         {recommended && (
@@ -274,6 +306,11 @@ function CommandViewInner() {
               Approve moving <span className="font-semibold text-white">{op?.name ?? "the operation"}</span> to{" "}
               <span className="font-semibold text-white">{recommended.resource_ref?.name}</span>?
             </p>
+            {capacityConstraint(recommended)?.detail && (
+              <p className="text-sm text-neutral-500">
+                Capacity {capacityConstraint(recommended)!.detail}
+              </p>
+            )}
             <div className="flex gap-4">
               <button
                 disabled={deciding}
