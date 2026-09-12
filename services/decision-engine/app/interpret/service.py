@@ -35,8 +35,16 @@ capacity, cost, authorization, or any other operational fact. You do not have th
 and are not being asked for it.
 
 You MAY infer: symptoms, an incident category, visual observations (from an image only), \
-severity, safety risk, likely fault classes with your confidence in each, the general kind of \
-service capability needed, and your own confidence and uncertainty.
+severity, safety risk, likely fault classes with your confidence in each, and your own \
+confidence and uncertainty.
+
+required_capability must be a short UPPER_SNAKE_CASE tag naming the KIND of technician skill \
+or spare-part category needed to address this — not a sentence or description. Pick the \
+closest fit (e.g. AV_SUPPORT, POS_SUPPORT, ELECTRICAL, PLUMBING, HVAC_SUPPORT, IT_SUPPORT, \
+NETWORK_SUPPORT); if truly nothing fits, use GENERAL_MAINTENANCE. This tag is matched \
+literally against a fixed roster of real technician/inventory records downstream, so \
+inventing a new or overly specific tag means no real resource will ever match it — when \
+unsure between two plausible tags, prefer the more general one.
 
 If the description is vague, if text and image seem to describe different problems, or if you \
 are simply not confident, set requires_human_review to true and explain why in review_reason — \

@@ -20,6 +20,29 @@ Severity = Literal["low", "medium", "high", "critical"]
 # probabilistic call, not something we trust the model to self-police.
 LOW_CONFIDENCE_THRESHOLD = 0.55
 
+# Fixed vocabulary for required_capability — matched literally downstream
+# against real technician skills / inventory tags (Phase 5's Recovery
+# Engine). A live Phase 5 gate run proved that a JSON-schema `enum` on the
+# provider's structured-output request (Groq's groq_provider.py) is NOT
+# reliably enforced by this model — it kept returning free-form values like
+# "hardware-equipment-electronics" despite the schema constraint. This is
+# the real, deterministic backstop: apply_review_policy clamps any
+# out-of-vocabulary value to GENERAL_MAINTENANCE and forces review, so a
+# provider-side enforcement gap can never silently reach the Recovery
+# Engine with an unmatchable tag.
+REQUIRED_CAPABILITY_VALUES = frozenset(
+    {
+        "AV_SUPPORT",
+        "POS_SUPPORT",
+        "ELECTRICAL",
+        "PLUMBING",
+        "HVAC_SUPPORT",
+        "IT_SUPPORT",
+        "NETWORK_SUPPORT",
+        "GENERAL_MAINTENANCE",
+    }
+)
+
 
 class PriorIncident(BaseModel):
     """One earlier incident for the same asset — trusted context, not RAG."""
@@ -97,6 +120,12 @@ def apply_review_policy(intel: IncidentIntelligence) -> IncidentIntelligence:
         reasons.append("text and image evidence conflict")
     if intel.incident_type == "unknown" or not intel.symptoms:
         reasons.append("insufficient evidence to classify")
+    if intel.required_capability not in REQUIRED_CAPABILITY_VALUES:
+        reasons.append(
+            f"required_capability '{intel.required_capability}' not in known vocabulary, "
+            "normalized to GENERAL_MAINTENANCE"
+        )
+        intel.required_capability = "GENERAL_MAINTENANCE"
 
     if reasons:
         intel.requires_human_review = True

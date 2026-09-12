@@ -44,10 +44,20 @@ import os
 import groq
 
 from app.interpret.providers.base import InterpretationProvider
+from app.schemas.incident import REQUIRED_CAPABILITY_VALUES
 
 logger = logging.getLogger(__name__)
 
 RESPONSE_SCHEMA_NAME = "incident_intelligence"
+
+# The `enum` below is a best-effort hint to Groq's structured-output mode —
+# a live Phase 5 gate run proved it is NOT reliably enforced for this model
+# (the API kept returning free-form values like "hardware-equipment-
+# electronics" despite the strict schema declaring this field an enum).
+# The real backstop is deterministic: app.schemas.incident.apply_review_
+# policy clamps any out-of-vocabulary value to GENERAL_MAINTENANCE and
+# forces review. Kept here anyway since it costs nothing and helps on
+# providers/models where enum enforcement does work.
 
 # Mirrors app.schemas.incident.ModelOutput exactly. Hand-written rather
 # than derived from Pydantic's model_json_schema(), because Groq/OpenAI-style
@@ -76,7 +86,7 @@ RESPONSE_SCHEMA = {
                 "additionalProperties": False,
             },
         },
-        "required_capability": {"type": "string"},
+        "required_capability": {"type": "string", "enum": sorted(REQUIRED_CAPABILITY_VALUES)},
         "requires_human_review": {"type": "boolean"},
         "review_reason": {"type": ["string", "null"]},
         "evidence_conflict": {"type": "boolean"},

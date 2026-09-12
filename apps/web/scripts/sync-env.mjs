@@ -18,7 +18,7 @@ const targetPath = join(__dirname, "..", ".env.local");
 
 // Only what apps/web's own code reads via process.env — not the whole file,
 // so decision-engine/n8n-only secrets never land in this directory.
-const NEEDED_KEYS = ["SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY", "INCIDENT_WEBHOOK_URL"];
+const NEEDED_KEYS = ["SUPABASE_URL", "SUPABASE_PUBLISHABLE_KEY", "INCIDENT_WEBHOOK_URL", "APPROVAL_WEBHOOK_URL"];
 
 if (!existsSync(rootEnvPath)) {
   console.log("sync-env: no root .env found, skipping");

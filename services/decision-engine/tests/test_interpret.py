@@ -157,6 +157,30 @@ def test_insufficient_evidence_forces_review():
     assert "insufficient evidence" in result.review_reason
 
 
+def test_out_of_vocabulary_required_capability_is_clamped_and_forces_review():
+    """A live Phase 5 gate run proved Groq's strict json_schema enum isn't
+    reliably enforced for this model — this is the deterministic backstop
+    that keeps an unmatchable free-text value from ever reaching the
+    Recovery Engine's technician/inventory matching."""
+    payload = {
+        **HIGH_CONFIDENCE_PAYLOAD,
+        "required_capability": "hardware-equipment-electronics",
+        "requires_human_review": False,
+    }
+    provider = FakeProvider(payload)
+    result = interpret_incident(make_request("projector won't turn on"), provider=provider)
+    assert result.required_capability == "GENERAL_MAINTENANCE"
+    assert result.requires_human_review is True
+    assert "not in known vocabulary" in result.review_reason
+
+
+def test_known_required_capability_passes_through_unchanged():
+    provider = FakeProvider(HIGH_CONFIDENCE_PAYLOAD)
+    result = interpret_incident(make_request("projector won't turn on"), provider=provider)
+    assert result.required_capability == "AV_SUPPORT"
+    assert result.requires_human_review is False
+
+
 def test_missing_default_provider_api_key_degrades_safely_instead_of_crashing(monkeypatch):
     """Groq is the active default provider (Phase 3 provider substitution)."""
     monkeypatch.delenv("GROQ_API_KEY", raising=False)
