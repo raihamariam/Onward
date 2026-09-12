@@ -85,6 +85,30 @@ export async function GET(req: NextRequest) {
         sb(`approvals?incident_id=eq.${incident.id}&select=*`),
       ]);
 
+    // Real capacity/status for the room the incident's asset is already in
+    // (asset.location is a plain text name, e.g. "Room 3.12" -- matched
+    // against locations.name) and for every relocate_operation candidate's
+    // target room. Both are used for display only, never recomputed --
+    // this is so the UI can show a real capacity number instead of parsing
+    // it back out of a constraint's own English sentence.
+    const assetLocationName = asset[0]?.location as string | undefined;
+    const relocateLocationIds = Array.from(
+      new Set(
+        (plans as { plan_type: string; resource_ref: Record<string, string> | null }[])
+          .filter((p) => p.plan_type === "relocate_operation" && p.resource_ref?.location_id)
+          .map((p) => p.resource_ref!.location_id)
+      )
+    );
+
+    const [originLocationRows, candidateLocationRows] = await Promise.all([
+      assetLocationName
+        ? sb(`locations?name=eq.${encodeURIComponent(assetLocationName)}&select=id,code,name,capacity,status`)
+        : Promise.resolve([]),
+      relocateLocationIds.length > 0
+        ? sb(`locations?id=in.(${relocateLocationIds.join(",")})&select=id,code,name,capacity,status`)
+        : Promise.resolve([]),
+    ]);
+
     const approval = approvalRows[0] ?? null;
 
     let executionRun = null;
@@ -110,6 +134,8 @@ export async function GET(req: NextRequest) {
       incident,
       sessionStartedAt,
       asset: asset[0] ?? null,
+      originLocation: originLocationRows[0] ?? null,
+      candidateLocations: candidateLocationRows,
       intelligence: intelligenceRows[0] ?? null,
       impact: impactRows[0] ?? null,
       plans,

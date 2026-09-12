@@ -1,8 +1,36 @@
 @import "tailwindcss";
 
+/* Onward is a dedicated dark operational dashboard -- committed to one
+   theme rather than adapting to system preference, matching the reference
+   design and apps/web/app/report/[assetCode] which already does the same. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #08090c;
+  --foreground: #f2f3f5;
+
+  --onward-panel: #101218;
+  --onward-panel-elevated: #14161e;
+  --onward-border: #22242c;
+  --onward-border-strong: #2c2f39;
+
+  --onward-text-primary: #f2f3f5;
+  --onward-text-secondary: #a1a5b0;
+  --onward-text-muted: #676b77;
+
+  --onward-green: #34d399;
+  --onward-green-bg: rgba(52, 211, 153, 0.1);
+  --onward-green-border: rgba(52, 211, 153, 0.35);
+
+  --onward-amber: #fbbf24;
+  --onward-amber-bg: rgba(251, 191, 36, 0.1);
+  --onward-amber-border: rgba(251, 191, 36, 0.35);
+
+  --onward-red: #f87171;
+  --onward-red-bg: rgba(248, 113, 113, 0.1);
+  --onward-red-border: rgba(248, 113, 113, 0.35);
+
+  --onward-blue: #60a5fa;
+  --onward-blue-bg: rgba(96, 165, 250, 0.1);
+  --onward-blue-border: rgba(96, 165, 250, 0.35);
 }
 
 @theme inline {
@@ -10,17 +38,73 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-panel: var(--onward-panel);
+  --color-panel-elevated: var(--onward-panel-elevated);
+  --color-panel-border: var(--onward-border);
+  --color-panel-border-strong: var(--onward-border-strong);
+
+  --color-text-primary: var(--onward-text-primary);
+  --color-text-secondary: var(--onward-text-secondary);
+  --color-text-muted: var(--onward-text-muted);
+
+  --color-status-green: var(--onward-green);
+  --color-status-green-bg: var(--onward-green-bg);
+  --color-status-green-border: var(--onward-green-border);
+
+  --color-status-amber: var(--onward-amber);
+  --color-status-amber-bg: var(--onward-amber-bg);
+  --color-status-amber-border: var(--onward-amber-border);
+
+  --color-status-red: var(--onward-red);
+  --color-status-red-bg: var(--onward-red-bg);
+  --color-status-red-border: var(--onward-red-border);
+
+  --color-status-blue: var(--onward-blue);
+  --color-status-blue-bg: var(--onward-blue-bg);
+  --color-status-blue-border: var(--onward-blue-border);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+}
+
+@keyframes onward-pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 var(--onward-green-border);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(52, 211, 153, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0);
+  }
+}
+
+@keyframes onward-pulse-ring-amber {
+  0% {
+    box-shadow: 0 0 0 0 var(--onward-amber-border);
+  }
+  70% {
+    box-shadow: 0 0 0 8px rgba(251, 191, 36, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(251, 191, 36, 0);
+  }
+}
+
+.onward-pulse {
+  animation: onward-pulse-ring 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.onward-pulse-amber {
+  animation: onward-pulse-ring-amber 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onward-pulse,
+  .onward-pulse-amber {
+    animation: none;
+  }
 }
