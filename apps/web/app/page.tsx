@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 type Asset = { id: string; code: string; name: string; location: string };
@@ -35,6 +35,7 @@ type WorkOrder = { status: string; description: string };
 
 type StateResponse = {
   incident: Incident | null;
+  sessionStartedAt: string | null;
   asset: Asset | null;
   intelligence: Intelligence | null;
   impact: Impact | null;
@@ -115,23 +116,80 @@ function Shell({ step, children }: { step: number; children: React.ReactNode }) 
   );
 }
 
+// Once the Command View finds a real incident for the current demo
+// session (no ?incident= override in play), it "locks on" to that exact
+// incident_id in sessionStorage so it keeps following that same incident
+// even if a later, unrelated one gets created -- e.g. a second rehearsal
+// submission -- rather than jumping to whatever's newest. The lock is
+// scoped to the session it was found under: tests/prepare_demo.py starting
+// a NEW session invalidates any old lock automatically (see the
+// sessionStartedAt comparison below), so "prepare demo again" always goes
+// back to a clean SYSTEM READY, never stuck on a previous rehearsal.
+const LOCK_KEY = "onward_locked_incident_id";
+const LOCK_SESSION_KEY = "onward_locked_session_started_at";
+
 function CommandViewInner() {
   const searchParams = useSearchParams();
   const incidentOverride = searchParams.get("incident");
   const [data, setData] = useState<StateResponse | null>(null);
   const [deciding, setDeciding] = useState(false);
   const [decisionError, setDecisionError] = useState<string | null>(null);
+  const lockedIdRef = useRef<string | null>(null);
+  const lockedSessionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      lockedIdRef.current = window.sessionStorage.getItem(LOCK_KEY);
+      lockedSessionRef.current = window.sessionStorage.getItem(LOCK_SESSION_KEY);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     async function poll() {
       try {
-        const url = incidentOverride
-          ? `/api/incident-state?incident=${encodeURIComponent(incidentOverride)}`
-          : "/api/incident-state";
+        let url: string;
+        if (incidentOverride) {
+          // Explicit override always wins — rehearsal/backup path.
+          url = `/api/incident-state?incident=${encodeURIComponent(incidentOverride)}`;
+        } else if (lockedIdRef.current) {
+          // Already locked onto an incident this session — keep following it.
+          url = `/api/incident-state?incident=${encodeURIComponent(lockedIdRef.current)}`;
+        } else {
+          // No lock yet — watch for the first incident in the current demo session.
+          url = "/api/incident-state";
+        }
+
         const res = await fetch(url, { cache: "no-store" });
         const body: StateResponse = await res.json();
-        if (!cancelled) setData(body);
+        if (cancelled) return;
+
+        if (!incidentOverride) {
+          // A newer demo session started (tests/prepare_demo.py ran again)
+          // — drop any stale lock and go back to watching for a fresh incident.
+          if (body.sessionStartedAt && body.sessionStartedAt !== lockedSessionRef.current && !lockedIdRef.current) {
+            lockedSessionRef.current = body.sessionStartedAt;
+          } else if (body.sessionStartedAt && lockedSessionRef.current && body.sessionStartedAt !== lockedSessionRef.current) {
+            lockedIdRef.current = null;
+            lockedSessionRef.current = body.sessionStartedAt;
+            window.sessionStorage.removeItem(LOCK_KEY);
+            window.sessionStorage.setItem(LOCK_SESSION_KEY, body.sessionStartedAt);
+            // Re-poll immediately under the new session instead of showing
+            // a stale incident for one more tick.
+            poll();
+            return;
+          }
+
+          if (!lockedIdRef.current && body.incident) {
+            lockedIdRef.current = body.incident.id;
+            window.sessionStorage.setItem(LOCK_KEY, body.incident.id);
+            if (body.sessionStartedAt) {
+              window.sessionStorage.setItem(LOCK_SESSION_KEY, body.sessionStartedAt);
+            }
+          }
+        }
+
+        setData(body);
       } catch {
         // transient network hiccup — next poll tries again
       }

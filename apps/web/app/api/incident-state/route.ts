@@ -31,21 +31,49 @@ export async function GET(req: NextRequest) {
   try {
     const incidentIdParam = req.nextUrl.searchParams.get("incident");
 
+    // Always resolve the current demo session, regardless of which incident
+    // branch below is used -- the client needs this on EVERY poll (even
+    // while pinned to a locked incident id) to notice when
+    // tests/prepare_demo.py starts a new session and drop its old lock.
+    // If database/migrations/0009_demo_sessions.sql hasn't been applied
+    // yet, treat that exactly like "no session started" (SYSTEM READY)
+    // rather than a 500 -- the safe default either way.
+    let sessionRows: { started_at: string }[] = [];
+    try {
+      sessionRows = await sb(`demo_sessions?select=started_at&order=started_at.desc&limit=1`);
+    } catch {
+      sessionRows = [];
+    }
+    const sessionStartedAt: string | null = sessionRows[0]?.started_at ?? null;
+
     let incident;
     if (incidentIdParam) {
+      // Explicit/pinned incident id always wins for WHICH incident to show
+      // -- covers both the documented ?incident= backup/rehearsal override
+      // and the Command View's own client-side lock-on once it has found
+      // one for the current session.
       const rows = await sb(
         `incidents?id=eq.${encodeURIComponent(incidentIdParam)}&select=*`
       );
       incident = rows[0] ?? null;
     } else {
+      // No pin yet: only ever follow an incident reported AFTER the most
+      // recent demo session started. Historical incidents are never
+      // deleted -- this is purely "where do we start looking", so a stale
+      // rehearsal incident can never re-surface on the live screen. No
+      // session yet -> SYSTEM READY, never "whatever's newest in the whole
+      // table" (the Phase 11 bug).
+      if (!sessionStartedAt) {
+        return NextResponse.json({ incident: null, sessionStartedAt: null });
+      }
       const rows = await sb(
-        `incidents?select=*&order=reported_at.desc&limit=1`
+        `incidents?reported_at=gt.${encodeURIComponent(sessionStartedAt)}&select=*&order=reported_at.asc&limit=1`
       );
       incident = rows[0] ?? null;
     }
 
     if (!incident) {
-      return NextResponse.json({ incident: null });
+      return NextResponse.json({ incident: null, sessionStartedAt });
     }
 
     const [asset, intelligenceRows, impactRows, plans, approvalRows] =
@@ -80,6 +108,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       incident,
+      sessionStartedAt,
       asset: asset[0] ?? null,
       intelligence: intelligenceRows[0] ?? null,
       impact: impactRows[0] ?? null,
