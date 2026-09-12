@@ -13,6 +13,30 @@ import { NextRequest, NextResponse } from "next/server";
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY;
 
+// The client's StateResponse type (lib/onward/types.ts) has no optional
+// fields -- every array/object is always present, even when there's no
+// incident yet (SYSTEM READY). Returning a partial shape here crashed
+// buildViewModel() before it could ever render that state, since it reads
+// data.plans.length etc. unconditionally. Both no-session and no-incident
+// early returns go through this so the contract can't drift apart again.
+function emptyState(sessionStartedAt: string | null) {
+  return {
+    incident: null,
+    sessionStartedAt,
+    asset: null,
+    originLocation: null,
+    candidateLocations: [],
+    intelligence: null,
+    impact: null,
+    plans: [],
+    approval: null,
+    executionRun: null,
+    executionActions: [],
+    workOrders: [],
+    reservations: [],
+  };
+}
+
 async function sb(path: string) {
   if (!SUPABASE_URL || !SUPABASE_KEY) {
     throw new Error("SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY are not configured");
@@ -64,7 +88,7 @@ export async function GET(req: NextRequest) {
       // session yet -> SYSTEM READY, never "whatever's newest in the whole
       // table" (the Phase 11 bug).
       if (!sessionStartedAt) {
-        return NextResponse.json({ incident: null, sessionStartedAt: null });
+        return NextResponse.json(emptyState(null));
       }
       const rows = await sb(
         `incidents?reported_at=gt.${encodeURIComponent(sessionStartedAt)}&select=*&order=reported_at.asc&limit=1`
@@ -73,7 +97,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (!incident) {
-      return NextResponse.json({ incident: null, sessionStartedAt });
+      return NextResponse.json(emptyState(sessionStartedAt));
     }
 
     const [asset, intelligenceRows, impactRows, plans, approvalRows] =

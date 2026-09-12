@@ -41,12 +41,22 @@ const EXPECTED_ACTIONS_BY_PLAN: Record<string, string[]> = {
 };
 
 export function buildViewModel(data: StateResponse): OnwardViewModel {
+  // Defensive: the API contract guarantees these arrays are always present
+  // (never undefined), but a stale deploy, a hand-edited response, or a
+  // future contract slip should degrade to an empty array here rather than
+  // crash the whole Command View on data.plans.length / .filter(...).
+  const plans = data.plans ?? [];
+  const executionActions = data.executionActions ?? [];
+  const workOrders = data.workOrders ?? [];
+  const reservations = data.reservations ?? [];
+  const candidateLocations = data.candidateLocations ?? [];
+
   const hasIncident = Boolean(data.incident);
   const hasIntelligence = Boolean(data.intelligence);
   const hasImpact = Boolean(data.impact);
   const impactKnown = Boolean(data.impact?.impact_known);
-  const hasPlans = data.plans.length > 0;
-  const recommendedPlan = data.plans.find((p) => p.is_recommended) ?? null;
+  const hasPlans = plans.length > 0;
+  const recommendedPlan = plans.find((p) => p.is_recommended) ?? null;
   const hasRecommendedPlan = Boolean(recommendedPlan);
   const noFeasiblePlan = hasPlans && !hasRecommendedPlan;
 
@@ -65,10 +75,15 @@ export function buildViewModel(data: StateResponse): OnwardViewModel {
   const expectedActionTypes = recommendedPlan
     ? EXPECTED_ACTIONS_BY_PLAN[recommendedPlan.plan_type] ?? []
     : [];
-  const completedActionCount = data.executionActions.filter((a) => a.status === "completed").length;
+  const completedActionCount = executionActions.filter((a) => a.status === "completed").length;
 
   return {
     ...data,
+    plans,
+    executionActions,
+    workOrders,
+    reservations,
+    candidateLocations,
     hasIncident,
     hasIntelligence,
     hasImpact,
