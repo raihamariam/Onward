@@ -36,3 +36,7 @@ Thumbs.db
 
 # uv
 services/decision-engine/uv.lock.tmp
+
+# Demo runtime operator state (local-only, regenerated each run)
+tests/.demo_runtime_state.json
+tests/.demo_runtime_logs/

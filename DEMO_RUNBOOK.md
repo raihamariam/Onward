@@ -5,6 +5,36 @@ database IDs or writing SQL.
 
 ## Before each rehearsal / the real run
 
+The decision-engine runs locally and its public dev tunnel (Cloudflare
+Quick Tunnel) rotates URL every restart, which four n8n nodes depend on —
+so start with the runtime hardening procedure, not `prepare_demo.py`
+directly:
+
+```bash
+python tests/demo_runtime.py start
+```
+
+Ensures exactly one decision-engine process and exactly one fresh tunnel
+are up, validates the tunnel is genuinely publicly reachable, and prints
+the new URL. **Then** ask Claude Code: *"Update WF-02, WF-03, WF-04, and
+WF-05's decision-engine HTTP node to `<the printed URL>` and republish all
+four."* (Or edit the four HTTP nodes by hand in the n8n editor if Claude
+Code isn't available — see "Runtime hardening: the tunnel-refresh
+procedure" below for exactly which node in each workflow.)
+
+```bash
+python tests/demo_runtime.py finish
+```
+
+Re-checks health, then runs `demo_preflight.py` and `prepare_demo.py` for
+you (see below for what each does), and confirms the public Command View
+reads SYSTEM READY. Full details, safety rules, and the exact expected
+output: see "Runtime hardening: the tunnel-refresh procedure" below.
+
+If the tunnel is already known-good (e.g. earlier in the same session) and
+you only need to reset the scenario's timing/state, the two underlying
+scripts can still be run directly:
+
 ```bash
 uv run --project services/decision-engine python tests/demo_preflight.py
 uv run --project services/decision-engine python tests/prepare_demo.py
@@ -56,25 +86,74 @@ Command View automatically drops any old lock (even mid-display) and
 returns to `SYSTEM READY` on its own — no page needs to be closed, no
 record needs to be deleted.
 
-## If the Cloudflare tunnel restarts
+## Runtime hardening: the tunnel-refresh procedure
 
-The tunnel URL is ephemeral and decision-engine's public reachability
-depends on it (`DECISION_ENGINE_PUBLIC_URL` in `.env`). If
-`demo_preflight.py` reports the public tunnel check as `FAIL`:
+If `demo_preflight.py` reports the public tunnel check (or any of the
+WF-02/03/04 compute-path checks) as `FAIL`, the Cloudflare Quick Tunnel has
+gone stale — run the full procedure from the top of this document
+(`tests/demo_runtime.py start`, then the n8n update, then `tests/
+demo_runtime.py finish`). What `start` actually does, precisely:
 
-1. Confirm exactly one `uvicorn` and one `cloudflared` process are running
-   (`Get-CimInstance Win32_Process | Where-Object { $_.Name -match
-   'uvicorn.exe|cloudflared.exe' }` in PowerShell).
-2. If `cloudflared` isn't running: `cloudflared tunnel --url
-   http://localhost:8000` and note the new `https://*.trycloudflare.com`
-   URL it prints.
-3. Update `DECISION_ENGINE_PUBLIC_URL` in `.env` to the new URL.
-4. The matching n8n HTTP-request nodes (WF-02 "Call Decision Engine", WF-03
-   "Call Decision Engine", WF-04 "Call Decision Engine", WF-05 "Recompute
-   Fingerprint") each need their `url` field updated to the new tunnel and
-   republished — this needs Claude Code's n8n access, or manual editing in
-   the n8n UI. Do not touch any other part of those workflows.
-5. Re-run `demo_preflight.py` to confirm.
+1. **Decision engine.** Checks which process (if any) actually owns the
+   listening socket on `:8000` — not a process-name guess, the real
+   listener. Starts one (`uv run uvicorn app.main:app --host 0.0.0.0
+   --port 8000`, no `--reload`) only if none is running. More than one
+   listener is reported as a FAIL rather than silently picked between —
+   that needs a human to look at it.
+2. **Tunnel.** Finds every cloudflared process whose command line contains
+   exactly `--url http://localhost:8000` (this project's decision-engine,
+   nothing else), prints each one's pid/parent/start-time/command line,
+   closes it (a Quick Tunnel URL can never be renewed — a stale one has to
+   go before a fresh one starts), then starts exactly one new tunnel.
+   **Safety rule, deliberate and non-negotiable:** it will never act on a
+   cloudflared process for any other `--url`, or on any process that
+   merely happens to contain the word "cloudflared" somewhere in its own
+   text (this was an actual bug caught during development — the
+   inspection query's own command line matched the search filter it was
+   running, until the query was tightened to exclude `powershell.exe`).
+3. **Validation.** Polls the new URL's `/health` with a public-DNS (1.1.1.1)
+   fallback for the few seconds a brand-new `*.trycloudflare.com`
+   subdomain sometimes needs before this network's local resolver catches
+   up — a real, reproducible lag seen repeatedly here, not a tunnel
+   problem.
+4. Writes the URL into `.env`'s `DECISION_ENGINE_PUBLIC_URL` and stops.
+
+**Then, the one step that isn't scriptable:** ask Claude Code to update
+WF-02 "Call Decision Engine" (`/incident/interpret`), WF-03 "Call Decision
+Engine" (`/impact/calculate`), WF-04 "Call Decision Engine"
+(`/recovery/plan`), and WF-05 "Recompute Fingerprint" (`/recovery/plan`)
+to the new URL and republish all four — this needs n8n's own access
+(Claude Code's existing MCP connection), which is why this isn't a single
+one-shot script; provisioning a separate n8n API credential just to avoid
+that one manual step would mean adding a new access path, not reusing the
+one that's already there. Without Claude Code, edit those same four nodes
+by hand in the n8n editor. Do not touch any other part of any of the four
+workflows.
+
+Finally: `tests/demo_runtime.py finish` — re-checks health, runs
+`demo_preflight.py`, runs `prepare_demo.py`, and confirms the public
+Command View reads SYSTEM READY. Expect every row PASS (Groq may
+legitimately read INFO — see below):
+
+```
+Local decision engine: PASS
+Public tunnel: PASS
+WF-02 URL: PASS
+WF-03 URL: PASS
+WF-04 URL: PASS
+WF-05 URL: PASS
+Groq: PASS/INFO
+Supabase: PASS
+ECON301: PASS
+Room 2.08: PASS
+Frontend: PASS
+Command View: SYSTEM READY
+
+ONWARD DEMO RUNTIME: READY
+```
+
+If anything reads FAIL, fix that one thing and re-run rather than
+proceeding to record.
 
 ## Groq
 

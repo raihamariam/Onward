@@ -29,8 +29,10 @@ pure function call with zero Supabase side effects.
 from __future__ import annotations
 
 import json
+import re
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -59,6 +61,22 @@ def load_env(path: Path) -> dict[str, str]:
     return env
 
 
+def _public_dns_ip(hostname: str) -> str | None:
+    """This machine's local resolver has been observed to lag by more than a
+    trivial amount on brand-new *.trycloudflare.com subdomains (seen
+    repeatedly during Phase 12 hardening) -- 1.1.1.1 always has it. Used only
+    as a last-resort fallback below, and only for trycloudflare.com hosts."""
+    import subprocess
+
+    try:
+        out = subprocess.run(["nslookup", hostname, "1.1.1.1"], capture_output=True, text=True, timeout=10)
+    except Exception:  # noqa: BLE001
+        return None
+    ipv4s = re.findall(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b", out.stdout)
+    answer = [ip for ip in ipv4s if ip != "1.1.1.1"]
+    return answer[-1] if answer else None
+
+
 def http(method: str, url: str, headers: dict | None = None, body: dict | None = None, timeout: int = 12):
     data = json.dumps(body).encode("utf-8") if body is not None else None
     req = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
@@ -68,6 +86,25 @@ def http(method: str, url: str, headers: dict | None = None, body: dict | None =
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode("utf-8", errors="replace")
     except urllib.error.URLError as e:
+        host = urllib.parse.urlparse(url).hostname or ""
+        if host.endswith(".trycloudflare.com"):
+            ip = _public_dns_ip(host)
+            if ip:
+                import subprocess
+
+                try:
+                    out = subprocess.run(
+                        ["curl", "-s", "-w", "\n%{http_code}", "--max-time", str(timeout),
+                         "--resolve", f"{host}:443:{ip}", "-X", method,
+                         *(["-H", "Content-Type: application/json", "-d", json.dumps(body)] if body is not None else []),
+                         url],
+                        capture_output=True, text=True, timeout=timeout + 5,
+                    )
+                    parts = out.stdout.rsplit("\n", 1)
+                    if len(parts) == 2 and parts[1].strip().isdigit():
+                        return int(parts[1].strip()), parts[0]
+                except Exception:  # noqa: BLE001
+                    pass
         return None, str(e.reason)
 
 
